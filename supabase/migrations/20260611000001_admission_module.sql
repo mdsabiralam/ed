@@ -5,8 +5,8 @@
 -- 1. NATIVE ENUM DEFINITIONS
 -- =========================================================================
 
-CREATE TYPE lead_status AS ENUM ('NEW', 'CONTACTED', 'INTERESTED', 'APPLICATION_SUBMITTED', 'LOST');
-CREATE TYPE application_status AS ENUM ('SUBMITTED', 'UNDER_REVIEW', 'EXAM_SCHEDULED', 'INTERVIEW_SCHEDULED', 'APPROVED', 'REJECTED', 'CANCELLED');
+CREATE TYPE lead_status AS ENUM ('NEW', 'CONTACTED', 'FOLLOW_UP', 'VISITED', 'APPLICATION_STARTED', 'APPLICATION_SUBMITTED', 'LOST');
+CREATE TYPE application_status AS ENUM ('SUBMITTED', 'UNDER_REVIEW', 'DOCUMENT_PENDING', 'EXAM_SCHEDULED', 'INTERVIEW_SCHEDULED', 'WAITLISTED', 'APPROVED', 'REJECTED', 'MATRICULATED');
 CREATE TYPE document_verification_status AS ENUM ('PENDING', 'VERIFIED', 'REJECTED');
 CREATE TYPE exam_result_status AS ENUM ('PENDING', 'PASSED', 'FAILED');
 CREATE TYPE interview_result_status AS ENUM ('PENDING', 'RECOMMENDED', 'NOT_RECOMMENDED');
@@ -14,6 +14,12 @@ CREATE TYPE fee_ledger_status AS ENUM ('CLEARED', 'OVERDUE', 'PARTIALLY_PAID');
 CREATE TYPE fee_ledger_item_status AS ENUM ('UNPAID', 'PAID', 'PARTIALLY_PAID');
 CREATE TYPE admission_approval_action AS ENUM ('SUBMIT', 'REVIEW', 'EXAM_SCHEDULED', 'INTERVIEW_SCHEDULED', 'APPROVED', 'REJECTED', 'CANCELLED');
 CREATE TYPE ocr_job_status AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
+
+-- Upgraded Domain Enums
+CREATE TYPE admission_session_status AS ENUM ('DRAFT', 'OPEN', 'CLOSED', 'SUSPENDED');
+CREATE TYPE document_type AS ENUM ('BIRTH_CERTIFICATE', 'AADHAAR_CARD', 'TRANSFER_CERTIFICATE', 'MARKSHEET', 'PHOTOGRAPH', 'ADDRESS_PROOF', 'OTHER');
+CREATE TYPE admission_fee_type AS ENUM ('ADMISSION_FEE', 'REGISTRATION_FEE', 'PROSPECTUS_FEE', 'TUITION_FEE', 'TRANSPORT_FEE', 'OTHER');
+CREATE TYPE seat_status AS ENUM ('AVAILABLE', 'FULL', 'OVERFLOW');
 
 -- =========================================================================
 -- 2. BASELINE TABLES: ADMISSION CYCLES & LEADS
@@ -26,10 +32,11 @@ CREATE TABLE admission_sessions (
     name VARCHAR(100) NOT NULL,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
-    status VARCHAR(50) NOT NULL DEFAULT 'DRAFT', -- kept as VARCHAR for custom workflow tags
+    status admission_session_status NOT NULL DEFAULT 'DRAFT',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    deleted_at TIMESTAMPTZ
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID
 );
 
 CREATE TABLE leads (
@@ -121,14 +128,16 @@ CREATE TABLE admission_documents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institute_id UUID NOT NULL REFERENCES institutes(id) ON DELETE CASCADE,
     application_id UUID NOT NULL REFERENCES admission_applications(id) ON DELETE CASCADE,
-    document_type VARCHAR(100) NOT NULL,
+    document_type document_type NOT NULL,
     file_url TEXT NOT NULL,
     verification_status document_verification_status NOT NULL DEFAULT 'PENDING',
     rejected_reason TEXT,
     verified_by UUID REFERENCES users(id) ON DELETE SET NULL,
     verified_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID
 );
 
 -- =========================================================================
@@ -145,7 +154,9 @@ CREATE TABLE entrance_exams (
     result_status exam_result_status NOT NULL DEFAULT 'PENDING',
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID
 );
 
 CREATE TABLE admission_interviews (
@@ -157,7 +168,9 @@ CREATE TABLE admission_interviews (
     feedback TEXT,
     result_status interview_result_status NOT NULL DEFAULT 'PENDING',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID
 );
 
 -- =========================================================================
@@ -174,9 +187,11 @@ CREATE TABLE class_seats (
     capacity INT NOT NULL,
     reserved_seats INT NOT NULL DEFAULT 0,
     admitted_seats INT NOT NULL DEFAULT 0,
-    status VARCHAR(50) NOT NULL DEFAULT 'AVAILABLE',
+    status seat_status NOT NULL DEFAULT 'AVAILABLE',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID,
     CONSTRAINT uq_class_seat_session UNIQUE (institute_id, academic_session_id, class_name, section_name)
 );
 
@@ -218,20 +233,24 @@ CREATE TABLE fee_ledgers (
     balance NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     status fee_ledger_status NOT NULL DEFAULT 'CLEARED',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID
 );
 
 CREATE TABLE fee_ledger_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institute_id UUID NOT NULL REFERENCES institutes(id) ON DELETE CASCADE,
     ledger_id UUID NOT NULL REFERENCES fee_ledgers(id) ON DELETE CASCADE,
-    fee_type VARCHAR(100) NOT NULL,
+    fee_type admission_fee_type NOT NULL,
     amount NUMERIC(12, 2) NOT NULL,
     due_date DATE NOT NULL,
     paid_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     status fee_ledger_item_status NOT NULL DEFAULT 'UNPAID',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID
 );
 
 -- =========================================================================
@@ -267,7 +286,7 @@ CREATE POLICY fee_ledgers_policy ON fee_ledgers FOR ALL USING (get_current_user_
 CREATE POLICY fee_ledger_items_policy ON fee_ledger_items FOR ALL USING (get_current_user_role() = 'SUPER_ADMIN' OR institute_id = get_current_institute_id());
 
 -- =========================================================================
--- 9. PERFORMANCE INDEXES
+-- 9. PERFORMANCE INDEXES (PATCHED WITH COMPOUND SAAS FILTERS)
 -- =========================================================================
 
 CREATE INDEX idx_admission_sessions_institute ON admission_sessions(institute_id);
@@ -288,3 +307,14 @@ CREATE INDEX idx_approval_logs_app ON admission_approval_logs(application_id);
 CREATE INDEX idx_ocr_jobs_app ON ocr_admission_jobs(application_id);
 CREATE INDEX idx_ledgers_student ON fee_ledgers(student_id);
 CREATE INDEX idx_ledger_items_ledger ON fee_ledger_items(ledger_id);
+
+-- Compound indexes for high concurrent SaaS searches
+CREATE INDEX idx_leads_inst_status ON leads(institute_id, status);
+CREATE INDEX idx_leads_inst_session ON leads(institute_id, admission_session_id);
+CREATE INDEX idx_applications_inst_status ON admission_applications(institute_id, status);
+CREATE INDEX idx_applications_inst_class ON admission_applications(institute_id, class_name);
+CREATE INDEX idx_applications_inst_session ON admission_applications(institute_id, admission_session_id);
+CREATE INDEX idx_documents_inst_status ON admission_documents(institute_id, verification_status);
+CREATE INDEX idx_ocr_jobs_inst_status ON ocr_admission_jobs(institute_id, status);
+CREATE INDEX idx_ledgers_inst_status ON fee_ledgers(institute_id, status);
+CREATE INDEX idx_lead_followups_inst_lead ON lead_followups(institute_id, lead_id);

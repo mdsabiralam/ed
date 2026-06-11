@@ -1,6 +1,6 @@
 // Prisma Schema: schema.prisma
 // Database type: PostgreSQL (Supabase)
-// System Version: v6.2 Enterprise Foundation & Module 02 Mapping
+// System Version: v6.2 Enterprise Foundation & Module 02 Patched Mapping
 
 datasource db {
   provider = "postgresql"
@@ -403,7 +403,7 @@ model Student {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
-  deletedBy       String?   @map("deleted_by") @db.Uuid
+  deletedBy         String?   @map("deleted_by") @db.Uuid
 
   user      User      @relation(fields: [id], references: [id], onDelete: Cascade)
   institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
@@ -830,7 +830,9 @@ model AiJob {
 enum LeadStatus {
   NEW
   CONTACTED
-  INTERESTED
+  FOLLOW_UP
+  VISITED
+  APPLICATION_STARTED
   APPLICATION_SUBMITTED
   LOST
 }
@@ -838,11 +840,13 @@ enum LeadStatus {
 enum ApplicationStatus {
   SUBMITTED
   UNDER_REVIEW
+  DOCUMENT_PENDING
   EXAM_SCHEDULED
   INTERVIEW_SCHEDULED
+  WAITLISTED
   APPROVED
   REJECTED
-  CANCELLED
+  MATRICULATED
 }
 
 enum DocumentVerificationStatus {
@@ -892,21 +896,54 @@ enum OCRJobStatus {
   FAILED
 }
 
+enum AdmissionSessionStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  SUSPENDED
+}
+
+enum DocumentType {
+  BIRTH_CERTIFICATE
+  AADHAAR_CARD
+  TRANSFER_CERTIFICATE
+  MARKSHEET
+  PHOTOGRAPH
+  ADDRESS_PROOF
+  OTHER
+}
+
+enum AdmissionFeeType {
+  ADMISSION_FEE
+  REGISTRATION_FEE
+  PROSPECTUS_FEE
+  TUITION_FEE
+  TRANSPORT_FEE
+  OTHER
+}
+
+enum SeatStatus {
+  AVAILABLE
+  FULL
+  OVERFLOW
+}
+
 // =========================================================================
 // 13. MODULE 02 MODELS (STUDENT ADMISSION & LEAD MANAGEMENT)
 // =========================================================================
 
 model AdmissionSession {
-  id                String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  instituteId       String    @map("institute_id") @db.Uuid
-  academicSessionId String    @map("academic_session_id") @db.Uuid
-  name              String    @db.VarChar(100)
-  startDate         DateTime  @map("start_date") @db.Date
-  endDate           DateTime  @map("end_date") @db.Date
-  status            String    @default("DRAFT") @db.VarChar(50)
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
-  deletedAt         DateTime? @map("deleted_at")
+  id                String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId       String                 @map("institute_id") @db.Uuid
+  academicSessionId String                 @map("academic_session_id") @db.Uuid
+  name              String                 @db.VarChar(100)
+  startDate         DateTime               @map("start_date") @db.Date
+  endDate           DateTime               @map("end_date") @db.Date
+  status            AdmissionSessionStatus @default(DRAFT)
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @default(now()) @updatedAt @map("updated_at")
+  deletedAt         DateTime?              @map("deleted_at")
+  deletedBy         String?                @map("deleted_by") @db.Uuid
 
   institute       Institute       @relation("InstituteToAdmissionSessions", fields: [instituteId], references: [id], onDelete: Cascade)
   academicSession AcademicSession @relation("AcademicSessionToAdmissionSessions", fields: [academicSessionId], references: [id], onDelete: Cascade)
@@ -946,6 +983,9 @@ model Lead {
   @@index([branchId])
   @@index([admissionSessionId])
   @@index([status])
+  // Compound SaaS indexes
+  @@index([instituteId, status], map: "idx_leads_inst_status")
+  @@index([instituteId, admissionSessionId], map: "idx_leads_inst_session")
   @@map("leads")
 }
 
@@ -966,6 +1006,8 @@ model LeadFollowup {
 
   @@index([leadId])
   @@index([followedUpBy])
+  // Compound indexes
+  @@index([instituteId, leadId], map: "idx_lead_followups_inst_lead")
   @@map("lead_followups")
 }
 
@@ -1035,6 +1077,10 @@ model AdmissionApplication {
   @@index([admissionSessionId])
   @@index([guardianId])
   @@index([status])
+  // Compound SaaS indexes
+  @@index([instituteId, status], map: "idx_applications_inst_status")
+  @@index([instituteId, className], map: "idx_applications_inst_class")
+  @@index([instituteId, admissionSessionId], map: "idx_applications_inst_session")
   @@map("admission_applications")
 }
 
@@ -1042,7 +1088,7 @@ model AdmissionDocument {
   id                 String                     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   instituteId        String                     @map("institute_id") @db.Uuid
   applicationId      String                     @map("application_id") @db.Uuid
-  documentType       String                     @map("document_type") @db.VarChar(100)
+  documentType       DocumentType               @map("document_type")
   fileUrl            String                     @map("file_url")
   verificationStatus DocumentVerificationStatus @default(PENDING) @map("verification_status")
   rejectedReason     String?                    @map("rejected_reason")
@@ -1050,6 +1096,8 @@ model AdmissionDocument {
   verifiedAt         DateTime?                  @map("verified_at")
   createdAt          DateTime                   @default(now()) @map("created_at")
   updatedAt          DateTime                   @default(now()) @updatedAt @map("updated_at")
+  deletedAt          DateTime?                  @map("deleted_at")
+  deletedBy          String?                    @map("deleted_by") @db.Uuid
 
   institute   Institute            @relation("InstituteToAdmissionDocuments", fields: [instituteId], references: [id], onDelete: Cascade)
   application AdmissionApplication @relation("ApplicationToDocuments", fields: [applicationId], references: [id], onDelete: Cascade)
@@ -1058,6 +1106,8 @@ model AdmissionDocument {
 
   @@index([instituteId])
   @@index([applicationId])
+  // Compound SaaS indexes
+  @@index([instituteId, verificationStatus], map: "idx_documents_inst_status")
   @@map("admission_documents")
 }
 
@@ -1072,6 +1122,8 @@ model EntranceExam {
   notes         String?
   createdAt     DateTime         @default(now()) @map("created_at")
   updatedAt     DateTime         @default(now()) @updatedAt @map("updated_at")
+  deletedAt     DateTime?        @map("deleted_at")
+  deletedBy     String?          @map("deleted_by") @db.Uuid
 
   institute   Institute            @relation("InstituteToEntranceExams", fields: [instituteId], references: [id], onDelete: Cascade)
   application AdmissionApplication @relation("ApplicationToEntranceExam", fields: [applicationId], references: [id], onDelete: Cascade)
@@ -1090,6 +1142,8 @@ model AdmissionInterview {
   resultStatus    InterviewResultStatus @default(PENDING) @map("result_status")
   createdAt       DateTime              @default(now()) @map("created_at")
   updatedAt       DateTime              @default(now()) @updatedAt @map("updated_at")
+  deletedAt       DateTime?             @map("deleted_at")
+  deletedBy       String?               @map("deleted_by") @db.Uuid
 
   institute   Institute            @relation("InstituteToAdmissionInterviews", fields: [instituteId], references: [id], onDelete: Cascade)
   application AdmissionApplication @relation("ApplicationToInterview", fields: [applicationId], references: [id], onDelete: Cascade)
@@ -1108,9 +1162,11 @@ model ClassSeat {
   capacity          Int
   reservedSeats     Int      @default(0) @map("reserved_seats")
   admittedSeats     Int      @default(0) @map("admitted_seats")
-  status            String   @default("AVAILABLE") @db.VarChar(50)
+  status            SeatStatus @default(AVAILABLE)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+  deletedBy         String?  @map("deleted_by") @db.Uuid
 
   institute       Institute       @relation("InstituteToClassSeats", fields: [instituteId], references: [id], onDelete: Cascade)
   branch          Branch?         @relation("BranchToClassSeats", fields: [branchId], references: [id], onDelete: SetNull)
@@ -1158,6 +1214,8 @@ model OCRAdmissionJob {
   reviewer    User?                 @relation("UserToOcrReviewedJobs", fields: [reviewedBy], references: [id], onDelete: SetNull)
 
   @@index([applicationId])
+  // Compound SaaS indexes
+  @@index([instituteId, status], map: "idx_ocr_jobs_inst_status")
   @@map("ocr_admission_jobs")
 }
 
@@ -1171,12 +1229,16 @@ model FeeLedger {
   status      FeeLedgerStatus @default(CLEARED)
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at")
+  deletedAt   DateTime?       @map("deleted_at")
+  deletedBy   String?         @map("deleted_by") @db.Uuid
 
   institute Institute @relation("InstituteToFeeLedgers", fields: [instituteId], references: [id], onDelete: Cascade)
   student   User?     @relation("UserToFeeLedger", fields: [studentId], references: [id], onDelete: Cascade)
   items     FeeLedgerItem[] @relation("LedgerToItems")
 
   @@index([instituteId])
+  // Compound indexes
+  @@index([instituteId, status], map: "idx_ledgers_inst_status")
   @@map("fee_ledgers")
 }
 
@@ -1184,13 +1246,15 @@ model FeeLedgerItem {
   id          String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   instituteId String              @map("institute_id") @db.Uuid
   ledgerId    String              @map("ledger_id") @db.Uuid
-  feeType     String              @map("fee_type") @db.VarChar(100) // ADMISSION_FEE, REGISTRATION_FEE, PROSPECTUS_FEE
+  feeType     AdmissionFeeType    @map("fee_type")
   amount      Decimal             @db.Decimal(12, 2)
   dueDate     DateTime            @map("due_date") @db.Date
   paidAmount  Decimal             @default(0.00) @map("paid_amount") @db.Decimal(12, 2)
   status      FeeLedgerItemStatus @default(UNPAID)
   createdAt   DateTime            @default(now()) @map("created_at")
   updatedAt   DateTime            @default(now()) @updatedAt @map("updated_at")
+  deletedAt   DateTime?           @map("deleted_at")
+  deletedBy   String?             @map("deleted_by") @db.Uuid
 
   institute Institute @relation("InstituteToFeeLedgerItems", fields: [instituteId], references: [id], onDelete: Cascade)
   ledger    FeeLedger @relation("LedgerToItems", fields: [ledgerId], references: [id], onDelete: Cascade)
