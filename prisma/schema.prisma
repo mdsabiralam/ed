@@ -1,0 +1,1201 @@
+// Prisma Schema: schema.prisma
+// Database type: PostgreSQL (Supabase)
+// System Version: v6.2 Enterprise Foundation & Module 02 Mapping
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// =========================================================================
+// 1. BILLING & SAAS PLANS
+// =========================================================================
+
+model Plan {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name         String    @unique @db.VarChar(100)
+  price        Decimal   @db.Decimal(10, 2)
+  billingCycle String    @map("billing_cycle") @db.VarChar(50)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+
+  institutes    Institute[]
+  planFeatures  PlanFeature[]
+  subscriptions InstituteSubscription[]
+
+  @@map("plans")
+}
+
+model PlanFeature {
+  planId     String   @map("plan_id") @db.Uuid
+  featureKey String   @map("feature_key") @db.VarChar(100)
+  isEnabled  Boolean  @default(true) @map("is_enabled")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@id([planId, featureKey])
+  @@map("plan_features")
+}
+
+// =========================================================================
+// 2. TENANTS & BRANCHES
+// =========================================================================
+
+model Institute {
+  id                 String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  planId             String?   @map("plan_id") @db.Uuid
+  name               String    @db.VarChar(255)
+  subdomain          String    @unique @db.VarChar(100)
+  logoUrl            String?   @map("logo_url")
+  subscriptionStatus String?   @default("ACTIVE") @map("subscription_status") @db.VarChar(50)
+  expiryDate         DateTime? @map("expiry_date")
+  gracePeriodUntil   DateTime? @map("grace_period_until")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+  deletedBy          String?   @map("deleted_by") @db.Uuid
+
+  plan Plan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  branches             Branch[]
+  academicSessions     AcademicSession[]
+  financialYears       FinancialYear[]
+  numberSequences      NumberSequence[]
+  jobQueueLogs         JobQueueLog[]
+  apiKeys              ApiKey[]
+  webhookLogs          WebhookLog[]
+  exportJobs           ExportJob[]
+  users                User[]
+  guardians            Guardian[]
+  students             Student[]
+  drivers              Driver[]
+  staffProfiles        StaffProfile[]
+  roles                Role[]
+  userRoles            UserRole[]
+  loginSessions        LoginSession[]
+  passwordResetTokens  PasswordResetToken[]
+  subscriptions        InstituteSubscription[]
+  invoices             SubscriptionInvoice[]
+  auditLogs            AuditLog[]
+  activities           Activity[]
+  mediaFiles           MediaFile[]
+  settings             Setting[]
+  notifications        Notification[]
+  notificationDevices  NotificationDevice[]
+  featureFlags         FeatureFlag[]
+  aiJobs               AiJob[]
+
+  // Module 02 Relations
+  admissionSessions     AdmissionSession[]     @relation("InstituteToAdmissionSessions")
+  leads                 Lead[]                 @relation("InstituteToLeads")
+  leadFollowups         LeadFollowup[]         @relation("InstituteToLeadFollowups")
+  admissionFormTemplates AdmissionFormTemplate[] @relation("InstituteToAdmissionFormTemplates")
+  admissionApplications AdmissionApplication[] @relation("InstituteToAdmissionApplications")
+  admissionDocuments    AdmissionDocument[]    @relation("InstituteToAdmissionDocuments")
+  entranceExams         EntranceExam[]         @relation("InstituteToEntranceExams")
+  admissionInterviews   AdmissionInterview[]   @relation("InstituteToAdmissionInterviews")
+  classSeats            ClassSeat[]            @relation("InstituteToClassSeats")
+  admissionApprovalLogs AdmissionApprovalLog[] @relation("InstituteToAdmissionApprovalLogs")
+  ocrAdmissionJobs      OCRAdmissionJob[]      @relation("InstituteToOcrAdmissionJobs")
+  feeLedgers            FeeLedger[]            @relation("InstituteToFeeLedgers")
+  feeLedgerItems        FeeLedgerItem[]        @relation("InstituteToFeeLedgerItems")
+
+  @@map("institutes")
+}
+
+model Branch {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String    @map("institute_id") @db.Uuid
+  name        String    @db.VarChar(255)
+  address     String?
+  phone       String?   @db.VarChar(50)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?   @map("deleted_by") @db.Uuid
+
+  institute     Institute      @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  users         User[]
+  students      Student[]
+  staffProfiles StaffProfile[]
+  userRoles     UserRole[]
+  auditLogs     AuditLog[]
+  mediaFiles    MediaFile[]
+  activities    Activity[]
+  aiJobs        AiJob[]
+  settings      Setting[]
+
+  // Module 02 Relations
+  leads                 Lead[]                 @relation("BranchToLeads")
+  admissionApplications AdmissionApplication[] @relation("BranchToAdmissionApplications")
+  classSeats            ClassSeat[]            @relation("BranchToClassSeats")
+
+  @@index([instituteId])
+  @@map("branches")
+}
+
+// =========================================================================
+// 3. ACADEMIC, FINANCIAL PERIODS, SEQUENCES & INFRASTRUCTURE
+// =========================================================================
+
+model AcademicSession {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String    @map("institute_id") @db.Uuid
+  name        String    @db.VarChar(100)
+  startDate   DateTime  @map("start_date") @db.Date
+  endDate     DateTime  @map("end_date") @db.Date
+  isActive    Boolean   @default(false) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?   @map("deleted_by") @db.Uuid
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  // Module 02 Relations
+  admissionSessions AdmissionSession[] @relation("AcademicSessionToAdmissionSessions")
+  classSeats        ClassSeat[]        @relation("AcademicSessionToClassSeats")
+
+  @@index([instituteId])
+  @@map("academic_sessions")
+}
+
+model FinancialYear {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String    @map("institute_id") @db.Uuid
+  name        String    @db.VarChar(100)
+  startDate   DateTime  @map("start_date") @db.Date
+  endDate     DateTime  @map("end_date") @db.Date
+  isActive    Boolean   @default(false) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?   @map("deleted_by") @db.Uuid
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@index([instituteId])
+  @@map("financial_years")
+}
+
+model NumberSequence {
+  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId   String   @map("institute_id") @db.Uuid
+  sequenceType  String   @map("sequence_type") @db.VarChar(100)
+  prefix        String?  @db.VarChar(50)
+  currentNumber Int      @default(1) @map("current_number")
+  suffix        String?  @db.VarChar(50)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@unique([sequenceType, instituteId], name: "uq_sequence_type_institute")
+  @@index([instituteId])
+  @@map("number_sequences")
+}
+
+model JobQueueLog {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId  String    @map("institute_id") @db.Uuid
+  jobType      String    @map("job_type") @db.VarChar(100)
+  queueName    String    @map("queue_name") @db.VarChar(100)
+  status       String    @default("PENDING") @db.VarChar(50)
+  payloadJson  Json?     @map("payload_json")
+  resultJson   Json?     @map("result_json")
+  startedAt    DateTime? @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@index([instituteId])
+  @@map("job_queue_logs")
+}
+
+model ApiKey {
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId     String    @map("institute_id") @db.Uuid
+  name            String    @db.VarChar(255)
+  apiKeyHash      String    @unique @map("api_key_hash") @db.VarChar(255)
+  permissionsJson Json?     @map("permissions_json")
+  lastUsedAt      DateTime? @map("last_used_at")
+  expiresAt       DateTime? @map("expires_at")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@index([instituteId])
+  @@map("api_keys")
+}
+
+model WebhookLog {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId  String   @map("institute_id") @db.Uuid
+  source       String   @db.VarChar(100)
+  eventName    String   @map("event_name") @db.VarChar(100)
+  payloadJson  Json?    @map("payload_json")
+  status       String   @db.VarChar(50)
+  responseCode Int?     @map("response_code")
+  receivedAt   DateTime @default(now()) @map("received_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@index([instituteId])
+  @@map("webhook_logs")
+}
+
+model ExportJob {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  exportType  String   @map("export_type") @db.VarChar(100)
+  fileUrl     String?  @map("file_url")
+  requestedBy String   @map("requested_by") @db.Uuid
+  status      String   @default("PENDING") @db.VarChar(50)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  institute       Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  requestedByUser User      @relation(fields: [requestedBy], references: [id], onDelete: Cascade)
+
+  @@index([instituteId])
+  @@map("export_jobs")
+}
+
+model Country {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name         String   @db.VarChar(100)
+  isoCode      String   @unique @map("iso_code") @db.VarChar(10)
+  phoneCode    String?  @map("phone_code") @db.VarChar(10)
+  currencyCode String?  @map("currency_code") @db.VarChar(10)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  states State[]
+  cities City[]
+
+  @@map("countries")
+}
+
+model State {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  countryId String   @map("country_id") @db.Uuid
+  name      String   @db.VarChar(100)
+  code      String?  @db.VarChar(10)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  cities  City[]
+
+  @@index([countryId])
+  @@map("states")
+}
+
+model City {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  stateId   String   @map("state_id") @db.Uuid
+  countryId String   @map("country_id") @db.Uuid
+  name      String   @db.VarChar(100)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  state   State   @relation(fields: [stateId], references: [id], onDelete: Cascade)
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@index([stateId])
+  @@index([countryId])
+  @@map("cities")
+}
+
+// =========================================================================
+// 4. IDENTITY AND PROFILE SEPARATION
+// =========================================================================
+
+model User {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId  String    @map("institute_id") @db.Uuid
+  branchId     String?   @map("branch_id") @db.Uuid
+  email        String    @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  firstName    String    @map("first_name") @db.VarChar(100)
+  lastName     String    @map("last_name") @db.VarChar(100)
+  phone        String?   @db.VarChar(50)
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  branch    Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  // One-to-One profile extensions
+  studentProfile  Student?
+  guardianProfile Guardian?
+  driverProfile   Driver?
+  staffProfile    StaffProfile?
+
+  userRoles           UserRole[]
+  refreshTokens       RefreshToken[]
+  loginSessions       LoginSession[]
+  passwordResetTokens PasswordResetToken[]
+  auditLogs           AuditLog[]
+  mediaFiles          MediaFile[]
+  notifications       Notification[]
+  notificationDevices NotificationDevice[]
+  activities          Activity[]
+  exportJobs          ExportJob[]
+
+  // Module 02 Relations
+  verifiedDocuments   AdmissionDocument[]    @relation("UserToVerifiedDocuments")
+  admissionApprovals  AdmissionApprovalLog[] @relation("UserToAdmissionApprovals")
+  ocrReviewedJobs     OCRAdmissionJob[]      @relation("UserToOcrReviewedJobs")
+  leadFollowups       LeadFollowup[]         @relation("UserToLeadFollowups")
+  feeLedger           FeeLedger?             @relation("UserToFeeLedger")
+
+  @@index([instituteId])
+  @@index([branchId])
+  @@index([email], map: "idx_users_email")
+  @@unique([instituteId, email], map: "uq_user_email_institute")
+  @@map("users")
+}
+
+model Guardian {
+  id                String    @id @db.Uuid
+  instituteId       String    @map("institute_id") @db.Uuid
+  relationToStudent String?   @map("relation_to_student") @db.VarChar(50)
+  occupation        String?   @db.VarChar(150)
+  emergencyPhone    String?   @map("emergency_phone") @db.VarChar(50)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+  deletedBy         String?   @map("deleted_by") @db.Uuid
+
+  user      User      @relation(fields: [id], references: [id], onDelete: Cascade)
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  students  Student[]
+
+  // Module 02 Relations
+  admissionApplications AdmissionApplication[] @relation("GuardianToAdmissionApplications")
+
+  @@map("guardians")
+}
+
+model Student {
+  id              String    @id @db.Uuid
+  instituteId     String    @map("institute_id") @db.Uuid
+  branchId        String    @map("branch_id") @db.Uuid
+  rollNumber      String?   @map("roll_number") @db.VarChar(50)
+  admissionNumber String    @map("admission_number") @db.VarChar(100)
+  className       String?   @map("class_name") @db.VarChar(100)
+  sectionName     String?   @map("section_name") @db.VarChar(100)
+  guardianId      String?   @map("guardian_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+
+  user      User      @relation(fields: [id], references: [id], onDelete: Cascade)
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  branch    Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  guardian  Guardian? @relation(fields: [guardianId], references: [id], onDelete: SetNull)
+
+  @@index([instituteId])
+  @@index([branchId])
+  @@index([guardianId])
+  @@index([admissionNumber], map: "idx_students_admission")
+  @@unique([instituteId, admissionNumber], map: "uq_student_admission")
+  @@map("students")
+}
+
+model Driver {
+  id            String    @id @db.Uuid
+  instituteId   String    @map("institute_id") @db.Uuid
+  licenseNumber String    @map("license_number") @db.VarChar(100)
+  licenseExpiry DateTime? @map("license_expiry") @db.Date
+  vehicleNumber String?   @map("vehicle_number") @db.VarChar(50)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+
+  user      User      @relation(fields: [id], references: [id], onDelete: Cascade)
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@map("drivers")
+}
+
+model StaffProfile {
+  id            String    @id @db.Uuid
+  instituteId   String    @map("institute_id") @db.Uuid
+  branchId      String?   @map("branch_id") @db.Uuid
+  designation   String    @db.VarChar(100)
+  department    String?   @db.VarChar(100)
+  joiningDate   DateTime? @map("joining_date") @db.Date
+  qualification String?
+  salary        Decimal?  @db.Decimal(12, 2)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+
+  user      User      @relation(fields: [id], references: [id], onDelete: Cascade)
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  branch    Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([instituteId])
+  @@index([branchId])
+  @@map("staff_profiles")
+}
+
+// =========================================================================
+// 5. ROLES AND PERMISSIONS
+// =========================================================================
+
+model Role {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String?   @map("institute_id") @db.Uuid
+  name        String    @db.VarChar(100)
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?   @map("deleted_by") @db.Uuid
+
+  institute       Institute?       @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@unique([name, instituteId], name: "uq_role_name_institute")
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name        String   @unique @db.VarChar(150)
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId      String  @map("user_id") @db.Uuid
+  roleId      String  @map("role_id") @db.Uuid
+  instituteId String  @map("institute_id") @db.Uuid
+  branchId    String? @map("branch_id") @db.Uuid
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  branch    Branch?   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([userId])
+  @@map("user_roles")
+}
+
+// =========================================================================
+// 6. SESSION MANAGEMENT & SECURITY TOKENS
+// =========================================================================
+
+model RefreshToken {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model LoginSession {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  tokenHash   String   @map("token_hash") @db.VarChar(255)
+  ipAddress   String?  @map("ip_address") @db.VarChar(50)
+  deviceInfo  String?  @map("device_info")
+  browser     String?  @db.VarChar(100)
+  os          String?  @db.VarChar(100)
+  isActive    Boolean  @default(true) @map("is_active")
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("login_sessions")
+}
+
+model PasswordResetToken {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  tokenHash   String   @unique @map("token_hash") @db.VarChar(255)
+  expiresAt   DateTime @map("expires_at")
+  isUsed      Boolean  @default(false) @map("is_used")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// =========================================================================
+// 7. SAAS BILLING SUBSCRIPTIONS
+// =========================================================================
+
+model InstituteSubscription {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId  String    @map("institute_id") @db.Uuid
+  planId       String?   @map("plan_id") @db.Uuid
+  status       String    @db.VarChar(50)
+  startDate    DateTime  @map("start_date")
+  endDate      DateTime  @map("end_date")
+  trialEndsAt  DateTime? @map("trial_ends_at")
+  billingCycle String    @map("billing_cycle") @db.VarChar(50)
+  amount       Decimal   @db.Decimal(10, 2)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  plan      Plan?     @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  invoices SubscriptionInvoice[]
+
+  @@index([instituteId])
+  @@map("institute_subscriptions")
+}
+
+model SubscriptionInvoice {
+  id             String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId    String    @map("institute_id") @db.Uuid
+  subscriptionId String?   @map("subscription_id") @db.Uuid
+  invoiceNumber  String    @unique @map("invoice_number") @db.VarChar(100)
+  amount         Decimal   @db.Decimal(10, 2)
+  status         String    @db.VarChar(50)
+  dueDate        DateTime  @map("due_date")
+  paidAt         DateTime? @map("paid_at")
+  pdfUrl         String?   @map("pdf_url")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  institute    Institute              @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  subscription InstituteSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([instituteId])
+  @@map("subscription_invoices")
+}
+
+// =========================================================================
+// 8. PARTITIONED AUDIT LOGGING & ACTIVITY TIMELINE
+// =========================================================================
+
+model AuditLog {
+  id          String   @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String?  @map("institute_id") @db.Uuid
+  branchId    String?  @map("branch_id") @db.Uuid
+  userId      String?  @map("user_id") @db.Uuid
+  action      String   @db.VarChar(100)
+  tableName   String?  @map("table_name") @db.VarChar(100)
+  recordId    String?  @map("record_id") @db.Uuid
+  ipAddress   String?  @map("ip_address") @db.VarChar(50)
+  deviceInfo  String?  @map("device_info")
+  browser     String?  @db.VarChar(100)
+  oldValue    Json?    @map("old_value")
+  newValue    Json?    @map("new_value")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  institute Institute? @relation(fields: [instituteId], references: [id], onDelete: SetNull)
+  branch    Branch?    @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@id([id, createdAt])
+  @@index([instituteId])
+  @@map("audit_logs")
+}
+
+model Activity {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId  String   @map("institute_id") @db.Uuid
+  branchId     String?  @map("branch_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  message      String
+  activityType String   @map("activity_type") @db.VarChar(100)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  branch    Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([instituteId])
+  @@map("activities")
+}
+
+// =========================================================================
+// 9. MEDIA, STORAGE, SETTINGS & SYSTEM CONFIGS
+// =========================================================================
+
+model MediaFile {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String    @map("institute_id") @db.Uuid
+  branchId    String?   @map("branch_id") @db.Uuid
+  fileName    String    @map("file_name") @db.VarChar(255)
+  fileUrl     String    @map("file_url")
+  fileSize    Int       @map("file_size")
+  mimeType    String    @map("mime_type") @db.VarChar(100)
+  uploadedBy  String?   @map("uploaded_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedBy   String?   @map("deleted_by") @db.Uuid
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  branch    Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  user      User?     @relation(fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@index([instituteId])
+  @@map("media_files")
+}
+
+model Setting {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  branchId    String?  @map("branch_id") @db.Uuid
+  key         String   @db.VarChar(100)
+  value       String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  branch    Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@unique([key, instituteId, branchId], name: "uq_settings_key_tenant")
+  @@map("settings")
+}
+
+model SystemConfig {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  key         String   @unique @db.VarChar(100)
+  value       String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("system_configs")
+}
+
+// =========================================================================
+// 10. NOTIFICATIONS FOUNDATION
+// =========================================================================
+
+model NotificationTemplate {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name      String   @db.VarChar(100)
+  subject   String?  @db.VarChar(255)
+  body      String
+  channel   String   @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  notifications Notification[]
+
+  @@unique([name, channel], map: "uq_notification_template_name_channel")
+  @@map("notification_templates")
+}
+
+model Notification {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String    @map("institute_id") @db.Uuid
+  recipientId String    @map("recipient_id") @db.Uuid
+  templateId  String?   @map("template_id") @db.Uuid
+  title       String    @db.VarChar(255)
+  body        String
+  channel     String    @db.VarChar(50)
+  status      String    @default("PENDING") @db.VarChar(50)
+  sentAt      DateTime? @map("sent_at")
+  errorMessage String?  @map("error_message")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  institute Institute             @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  recipient User                  @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  template  NotificationTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([recipientId])
+  @@map("notifications")
+}
+
+model NotificationDevice {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  deviceToken String   @map("device_token")
+  deviceType  String   @map("device_type") @db.VarChar(50)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceToken], name: "uq_user_device_token")
+  @@map("notification_devices")
+}
+
+// =========================================================================
+// 11. MODULE REGISTRY, FEATURE FLAGS & AI INFRASTRUCTURE
+// =========================================================================
+
+model FeatureFlag {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String?  @map("institute_id") @db.Uuid
+  flagKey     String   @map("flag_key") @db.VarChar(100)
+  isEnabled   Boolean  @default(false) @map("is_enabled")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  institute Institute? @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@unique([flagKey, instituteId], name: "uq_flag_key_institute")
+  @@map("feature_flags")
+}
+
+model Module {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name        String   @unique @db.VarChar(100)
+  code        String   @unique @db.VarChar(100)
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("modules")
+}
+
+model AiJob {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  branchId    String?  @map("branch_id") @db.Uuid
+  jobType     String   @map("job_type") @db.VarChar(100)
+  status      String   @default("PENDING") @db.VarChar(50)
+  inputJson   Json?    @map("input_json")
+  outputJson  Json?    @map("output_json")
+  errorMessage String?  @map("error_message")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  branch    Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([instituteId])
+  @@map("ai_jobs")
+}
+
+// =========================================================================
+// 12. ENUM TYPES FOR MODULE 02 (STUDENT ADMISSION & LEAD MANAGEMENT)
+// =========================================================================
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  INTERESTED
+  APPLICATION_SUBMITTED
+  LOST
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  EXAM_SCHEDULED
+  INTERVIEW_SCHEDULED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum DocumentVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum ExamResultStatus {
+  PENDING
+  PASSED
+  FAILED
+}
+
+enum InterviewResultStatus {
+  PENDING
+  RECOMMENDED
+  NOT_RECOMMENDED
+}
+
+enum FeeLedgerStatus {
+  CLEARED
+  OVERDUE
+  PARTIALLY_PAID
+}
+
+enum FeeLedgerItemStatus {
+  UNPAID
+  PAID
+  PARTIALLY_PAID
+}
+
+enum AdmissionApprovalAction {
+  SUBMIT
+  REVIEW
+  EXAM_SCHEDULED
+  INTERVIEW_SCHEDULED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum OCRJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// =========================================================================
+// 13. MODULE 02 MODELS (STUDENT ADMISSION & LEAD MANAGEMENT)
+// =========================================================================
+
+model AdmissionSession {
+  id                String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId       String    @map("institute_id") @db.Uuid
+  academicSessionId String    @map("academic_session_id") @db.Uuid
+  name              String    @db.VarChar(100)
+  startDate         DateTime  @map("start_date") @db.Date
+  endDate           DateTime  @map("end_date") @db.Date
+  status            String    @default("DRAFT") @db.VarChar(50)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  institute       Institute       @relation("InstituteToAdmissionSessions", fields: [instituteId], references: [id], onDelete: Cascade)
+  academicSession AcademicSession @relation("AcademicSessionToAdmissionSessions", fields: [academicSessionId], references: [id], onDelete: Cascade)
+  leads           Lead[]          @relation("AdmissionSessionToLeads")
+  applications    AdmissionApplication[] @relation("AdmissionSessionToApplications")
+
+  @@index([instituteId])
+  @@index([academicSessionId])
+  @@map("admission_sessions")
+}
+
+model Lead {
+  id                 String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId        String      @map("institute_id") @db.Uuid
+  branchId           String?     @map("branch_id") @db.Uuid
+  admissionSessionId String      @map("admission_session_id") @db.Uuid
+  firstName          String      @map("first_name") @db.VarChar(100)
+  lastName           String      @map("last_name") @db.VarChar(100)
+  email              String?     @db.VarChar(255)
+  phone              String?     @db.VarChar(50)
+  className          String?     @map("class_name") @db.VarChar(100)
+  status             LeadStatus  @default(NEW)
+  source             String?     @default("WEBSITE") @db.VarChar(100)
+  notes              String?
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @default(now()) @updatedAt @map("updated_at")
+  deletedAt          DateTime?   @map("deleted_at")
+  deletedBy          String?     @map("deleted_by") @db.Uuid
+
+  institute        Institute        @relation("InstituteToLeads", fields: [instituteId], references: [id], onDelete: Cascade)
+  branch           Branch?          @relation("BranchToLeads", fields: [branchId], references: [id], onDelete: SetNull)
+  admissionSession AdmissionSession @relation("AdmissionSessionToLeads", fields: [admissionSessionId], references: [id], onDelete: Cascade)
+  applications     AdmissionApplication[] @relation("LeadToApplications")
+  followups        LeadFollowup[]   @relation("LeadToFollowups")
+
+  @@index([instituteId])
+  @@index([branchId])
+  @@index([admissionSessionId])
+  @@index([status])
+  @@map("leads")
+}
+
+model LeadFollowup {
+  id               String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId      String    @map("institute_id") @db.Uuid
+  leadId           String    @map("lead_id") @db.Uuid
+  followedUpBy     String    @map("followed_up_by") @db.Uuid
+  followUpDate     DateTime  @default(now()) @map("follow_up_date")
+  nextFollowUpDate DateTime? @map("next_follow_up_date")
+  mode             String    @default("CALL") @db.VarChar(50)
+  notes            String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  institute   Institute @relation("InstituteToLeadFollowups", fields: [instituteId], references: [id], onDelete: Cascade)
+  lead        Lead      @relation("LeadToFollowups", fields: [leadId], references: [id], onDelete: Cascade)
+  staff       User      @relation("UserToLeadFollowups", fields: [followedUpBy], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([followedUpBy])
+  @@map("lead_followups")
+}
+
+model AdmissionFormTemplate {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId   String    @map("institute_id") @db.Uuid
+  name          String    @db.VarChar(100)
+  className     String    @map("class_name") @db.VarChar(100)
+  isActive      Boolean   @default(true) @map("is_active")
+  version       Int       @default(1)
+  formFieldsJson Json     @map("form_fields_json")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+
+  institute Institute @relation("InstituteToAdmissionFormTemplates", fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@index([instituteId, className])
+  @@map("admission_form_templates")
+}
+
+model AdmissionApplication {
+  id                 String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId        String            @map("institute_id") @db.Uuid
+  branchId           String            @map("branch_id") @db.Uuid
+  leadId             String?           @map("lead_id") @db.Uuid
+  admissionSessionId String            @map("admission_session_id") @db.Uuid
+  applicationNumber  String            @unique @map("application_number") @db.VarChar(100)
+  firstName          String            @map("first_name") @db.VarChar(100)
+  lastName           String            @map("last_name") @db.VarChar(100)
+  email              String?           @db.VarChar(255)
+  phone              String?           @db.VarChar(50)
+  dateOfBirth        DateTime          @map("date_of_birth") @db.Date
+  gender             String?           @db.VarChar(50)
+  className          String            @map("class_name") @db.VarChar(100)
+  sectionName        String?           @map("section_name") @db.VarChar(100)
+  guardianFirstName  String            @map("guardian_first_name") @db.VarChar(100)
+  guardianLastName   String            @map("guardian_last_name") @db.VarChar(100)
+  guardianEmail      String            @map("guardian_email") @db.VarChar(255)
+  guardianPhone      String            @map("guardian_phone") @db.VarChar(50)
+  guardianRelation   String            @map("guardian_relation") @db.VarChar(50)
+  guardianOccupation String?           @map("guardian_occupation") @db.VarChar(150)
+  guardianId         String?           @map("guardian_id") @db.Uuid
+  status             ApplicationStatus @default(SUBMITTED)
+  waitlistNumber     Int?              @map("waitlist_number")
+  isReserved         Boolean           @default(false) @map("is_reserved")
+  customFieldsJson   Json?             @map("custom_fields_json")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @default(now()) @updatedAt @map("updated_at")
+  deletedAt          DateTime?         @map("deleted_at")
+  deletedBy          String?           @map("deleted_by") @db.Uuid
+
+  institute        Institute         @relation("InstituteToAdmissionApplications", fields: [instituteId], references: [id], onDelete: Cascade)
+  branch           Branch            @relation("BranchToAdmissionApplications", fields: [branchId], references: [id], onDelete: Cascade)
+  lead             Lead?             @relation("LeadToApplications", fields: [leadId], references: [id], onDelete: SetNull)
+  admissionSession AdmissionSession  @relation("AdmissionSessionToApplications", fields: [admissionSessionId], references: [id], onDelete: Cascade)
+  guardian         Guardian?         @relation("GuardianToAdmissionApplications", fields: [guardianId], references: [id], onDelete: SetNull)
+  documents        AdmissionDocument[] @relation("ApplicationToDocuments")
+  entranceExam     EntranceExam?     @relation("ApplicationToEntranceExam")
+  interview        AdmissionInterview? @relation("ApplicationToInterview")
+  approvalLogs     AdmissionApprovalLog[] @relation("ApplicationToApprovalLogs")
+  ocrJobs          OCRAdmissionJob[]  @relation("ApplicationToOcrJobs")
+
+  @@index([instituteId])
+  @@index([branchId])
+  @@index([admissionSessionId])
+  @@index([guardianId])
+  @@index([status])
+  @@map("admission_applications")
+}
+
+model AdmissionDocument {
+  id                 String                     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId        String                     @map("institute_id") @db.Uuid
+  applicationId      String                     @map("application_id") @db.Uuid
+  documentType       String                     @map("document_type") @db.VarChar(100)
+  fileUrl            String                     @map("file_url")
+  verificationStatus DocumentVerificationStatus @default(PENDING) @map("verification_status")
+  rejectedReason     String?                    @map("rejected_reason")
+  verifiedBy         String?                    @map("verified_by") @db.Uuid
+  verifiedAt         DateTime?                  @map("verified_at")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @default(now()) @updatedAt @map("updated_at")
+
+  institute   Institute            @relation("InstituteToAdmissionDocuments", fields: [instituteId], references: [id], onDelete: Cascade)
+  application AdmissionApplication @relation("ApplicationToDocuments", fields: [applicationId], references: [id], onDelete: Cascade)
+  verifier    User?                @relation("UserToVerifiedDocuments", fields: [verifiedBy], references: [id], onDelete: SetNull)
+  ocrJobs     OCRAdmissionJob[]    @relation("DocumentToOcrJobs")
+
+  @@index([instituteId])
+  @@index([applicationId])
+  @@map("admission_documents")
+}
+
+model EntranceExam {
+  id            String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId   String           @map("institute_id") @db.Uuid
+  applicationId String           @unique @map("application_id") @db.Uuid
+  examDate      DateTime         @map("exam_date")
+  maxMarks      Decimal?         @map("max_marks") @db.Decimal(5, 2)
+  marksObtained Decimal?         @map("marks_obtained") @db.Decimal(5, 2)
+  resultStatus  ExamResultStatus @default(PENDING) @map("result_status")
+  notes         String?
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @default(now()) @updatedAt @map("updated_at")
+
+  institute   Institute            @relation("InstituteToEntranceExams", fields: [instituteId], references: [id], onDelete: Cascade)
+  application AdmissionApplication @relation("ApplicationToEntranceExam", fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([instituteId])
+  @@map("entrance_exams")
+}
+
+model AdmissionInterview {
+  id              String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId     String                @map("institute_id") @db.Uuid
+  applicationId   String                @unique @map("application_id") @db.Uuid
+  interviewDate   DateTime              @map("interview_date")
+  interviewerName String                @map("interviewer_name") @db.VarChar(150)
+  feedback        String?
+  resultStatus    InterviewResultStatus @default(PENDING) @map("result_status")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @default(now()) @updatedAt @map("updated_at")
+
+  institute   Institute            @relation("InstituteToAdmissionInterviews", fields: [instituteId], references: [id], onDelete: Cascade)
+  application AdmissionApplication @relation("ApplicationToInterview", fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([instituteId])
+  @@map("admission_interviews")
+}
+
+model ClassSeat {
+  id                String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId       String   @map("institute_id") @db.Uuid
+  branchId          String?  @map("branch_id") @db.Uuid
+  academicSessionId String   @map("academic_session_id") @db.Uuid
+  className         String   @map("class_name") @db.VarChar(100)
+  sectionName       String?  @map("section_name") @db.VarChar(100)
+  capacity          Int
+  reservedSeats     Int      @default(0) @map("reserved_seats")
+  admittedSeats     Int      @default(0) @map("admitted_seats")
+  status            String   @default("AVAILABLE") @db.VarChar(50)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at")
+
+  institute       Institute       @relation("InstituteToClassSeats", fields: [instituteId], references: [id], onDelete: Cascade)
+  branch          Branch?         @relation("BranchToClassSeats", fields: [branchId], references: [id], onDelete: SetNull)
+  academicSession AcademicSession @relation("AcademicSessionToClassSeats", fields: [academicSessionId], references: [id], onDelete: Cascade)
+
+  @@unique([instituteId, academicSessionId, className, sectionName], name: "uq_class_seat_session")
+  @@index([instituteId, academicSessionId, className])
+  @@map("class_seats")
+}
+
+model AdmissionApprovalLog {
+  id            String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId   String                  @map("institute_id") @db.Uuid
+  applicationId String                  @map("application_id") @db.Uuid
+  action        AdmissionApprovalAction
+  performedBy   String?                 @map("performed_by") @db.Uuid
+  comments      String?
+  createdAt     DateTime                @default(now()) @map("created_at")
+
+  institute   Institute            @relation("InstituteToAdmissionApprovalLogs", fields: [instituteId], references: [id], onDelete: Cascade)
+  application AdmissionApplication @relation("ApplicationToApprovalLogs", fields: [applicationId], references: [id], onDelete: Cascade)
+  performer   User?                @relation("UserToAdmissionApprovals", fields: [performedBy], references: [id], onDelete: SetNull)
+
+  @@index([applicationId])
+  @@map("admission_approval_logs")
+}
+
+model OCRAdmissionJob {
+  id                String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId       String       @map("institute_id") @db.Uuid
+  applicationId     String?      @map("application_id") @db.Uuid
+  documentId        String?      @map("document_id") @db.Uuid
+  status            OCRJobStatus @default(PENDING)
+  extractedDataJson Json?        @map("extracted_data_json")
+  errorMessage      String?      @map("error_message")
+  confidenceScore   Decimal?     @map("confidence_score") @db.Decimal(5, 2)
+  reviewedBy        String?      @map("reviewed_by") @db.Uuid
+  reviewedAt        DateTime?    @map("reviewed_at")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at")
+
+  institute   Institute             @relation("InstituteToOcrAdmissionJobs", fields: [instituteId], references: [id], onDelete: Cascade)
+  application AdmissionApplication? @relation("ApplicationToOcrJobs", fields: [applicationId], references: [id], onDelete: Cascade)
+  document    AdmissionDocument?    @relation("DocumentToOcrJobs", fields: [documentId], references: [id], onDelete: Cascade)
+  reviewer    User?                 @relation("UserToOcrReviewedJobs", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([applicationId])
+  @@map("ocr_admission_jobs")
+}
+
+model FeeLedger {
+  id          String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String          @map("institute_id") @db.Uuid
+  studentId   String?         @unique @map("student_id") @db.Uuid
+  totalDue    Decimal         @default(0.00) @map("total_due") @db.Decimal(12, 2)
+  totalPaid   Decimal         @default(0.00) @map("total_paid") @db.Decimal(12, 2)
+  balance     Decimal         @default(0.00) @db.Decimal(12, 2)
+  status      FeeLedgerStatus @default(CLEARED)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at")
+
+  institute Institute @relation("InstituteToFeeLedgers", fields: [instituteId], references: [id], onDelete: Cascade)
+  student   User?     @relation("UserToFeeLedger", fields: [studentId], references: [id], onDelete: Cascade)
+  items     FeeLedgerItem[] @relation("LedgerToItems")
+
+  @@index([instituteId])
+  @@map("fee_ledgers")
+}
+
+model FeeLedgerItem {
+  id          String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  instituteId String              @map("institute_id") @db.Uuid
+  ledgerId    String              @map("ledger_id") @db.Uuid
+  feeType     String              @map("fee_type") @db.VarChar(100) // ADMISSION_FEE, REGISTRATION_FEE, PROSPECTUS_FEE
+  amount      Decimal             @db.Decimal(12, 2)
+  dueDate     DateTime            @map("due_date") @db.Date
+  paidAmount  Decimal             @default(0.00) @map("paid_amount") @db.Decimal(12, 2)
+  status      FeeLedgerItemStatus @default(UNPAID)
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @default(now()) @updatedAt @map("updated_at")
+
+  institute Institute @relation("InstituteToFeeLedgerItems", fields: [instituteId], references: [id], onDelete: Cascade)
+  ledger    FeeLedger @relation("LedgerToItems", fields: [ledgerId], references: [id], onDelete: Cascade)
+
+  @@index([instituteId])
+  @@index([ledgerId])
+  @@map("fee_ledger_items")
+}
